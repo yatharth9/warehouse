@@ -17,7 +17,7 @@ from warehouse import db
 from warehouse.accounts.models import Email, User
 from warehouse.cache.origin import key_factory, receive_set
 from warehouse.manage.tasks import update_role_invitation_status
-from warehouse.packaging.interfaces import IDocsStorage, IFileStorage
+from warehouse.packaging.interfaces import IDocsStorage, IFileStorage, ISimpleStorage
 from warehouse.packaging.models import File, Project, Release, Role
 from warehouse.packaging.tasks import (
     compute_trending,
@@ -43,6 +43,9 @@ def includeme(config):
     # our package files.
     files_storage_class = config.maybe_dotted(config.registry.settings["files.backend"])
     config.register_service_factory(files_storage_class.create_service, IFileStorage)
+
+    simple_storage_class = config.maybe_dotted(config.registry.settings["simple.backend"])
+    config.register_service_factory(simple_storage_class.create_service, ISimpleStorage)
 
     docs_storage_class = config.maybe_dotted(config.registry.settings["docs.backend"])
     config.register_service_factory(docs_storage_class.create_service, IDocsStorage)

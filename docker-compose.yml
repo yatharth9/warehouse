@@ -1,6 +1,7 @@
 version: '3'
 
 volumes:
+  simple:
   packages:
   vault:
 
@@ -85,6 +86,7 @@ services:
       - ./htmlcov:/opt/warehouse/src/htmlcov:z
       - .coveragerc:/opt/warehouse/src/.coveragerc:z
       - packages:/var/opt/warehouse/packages
+      - simple:/var/opt/warehouse/simple
       - ./bin:/opt/warehouse/src/bin:z
     ports:
       - "80:8000"
@@ -96,6 +98,7 @@ services:
     command: python -m http.server 9001
     volumes:
       - packages:/var/opt/warehouse/packages
+      - simple:/var/opt/warehouse/simple
     ports:
       - "9001:9001"
 
@@ -111,6 +114,7 @@ services:
     environment:
       C_FORCE_ROOT: "1"
       FILES_BACKEND: "warehouse.packaging.services.LocalFileStorage path=/var/opt/warehouse/packages/ url=http://files:9001/packages/{path}"
+      SIMPLE_BACKEND: "warehouse.packaging.services.LocalSimpleStorage path=/var/opt/warehouse/simple/ url=http://files:9001/simple/{path}"
 
   static:
     build:
