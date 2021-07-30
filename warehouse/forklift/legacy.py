@@ -46,7 +46,6 @@ from trove_classifiers import classifiers, deprecated_classifiers
 
 from warehouse import forms
 from warehouse.admin.flags import AdminFlagValue
-from warehouse.admin.squats import Squat
 from warehouse.classifiers.models import Classifier
 from warehouse.metrics import IMetricsService
 from warehouse.packaging.interfaces import IFileStorage
@@ -125,20 +124,27 @@ _allowed_platforms = {
     "linux_armv7l",
 }
 # macosx is a little more complicated:
-_macosx_platform_re = re.compile(r"macosx_10_(\d+)+_(?P<arch>.*)")
+_macosx_platform_re = re.compile(r"macosx_(?P<major>\d+)_(\d+)_(?P<arch>.*)")
 _macosx_arches = {
     "ppc",
     "ppc64",
     "i386",
     "x86_64",
+    "arm64",
     "intel",
     "fat",
     "fat32",
     "fat64",
     "universal",
+    "universal2",
 }
+_macosx_major_versions = {
+    "10",
+    "11",
+}
+
 # manylinux pep600 is a little more complicated:
-_manylinux_platform_re = re.compile(r"manylinux_(\d+)+_(\d+)+_(?P<arch>.*)")
+_manylinux_platform_re = re.compile(r"manylinux_(\d+)_(\d+)_(?P<arch>.*)")
 _manylinux_arches = {
     "x86_64",
     "i686",
@@ -155,7 +161,11 @@ def _valid_platform_tag(platform_tag):
     if platform_tag in _allowed_platforms:
         return True
     m = _macosx_platform_re.match(platform_tag)
-    if m and m.group("arch") in _macosx_arches:
+    if (
+        m
+        and m.group("major") in _macosx_major_versions
+        and m.group("arch") in _macosx_arches
+    ):
         return True
     m = _manylinux_platform_re.match(platform_tag)
     if m and m.group("arch") in _manylinux_arches:
@@ -203,7 +213,11 @@ def _exc_with_message(exc, message, **kwargs):
     # The crappy old API that PyPI offered uses the status to pass down
     # messages to the client. So this function will make that easier to do.
     resp = exc(detail=message, **kwargs)
-    resp.status = "{} {}".format(resp.status_code, message)
+    # We need to guard against characters outside of iso-8859-1 per RFC.
+    # Specifically here, where user-supplied text may appear in the message,
+    # which our WSGI server may not appropriately handle (indeed gunicorn does not).
+    status_message = message.encode("iso-8859-1", "replace").decode("iso-8859-1")
+    resp.status = "{} {}".format(resp.status_code, status_message)
     return resp
 
 
@@ -520,7 +534,7 @@ class MetadataForm(forms.Form):
         validators=[
             wtforms.validators.DataRequired(),
             wtforms.validators.AnyOf(
-                ["bdist_egg", "bdist_wheel", "sdist"], message="Use a known file type.",
+                ["bdist_egg", "bdist_wheel", "sdist"], message="Use a known file type."
             ),
         ]
     )
@@ -648,7 +662,7 @@ def _is_valid_dist_file(filename, filetype):
                     member = tar.next()
                 if bad_tar:
                     return False
-        except tarfile.ReadError:
+        except (tarfile.ReadError, EOFError):
             return False
     elif filename.endswith(".exe"):
         # The only valid filetype for a .exe file is "bdist_wininst".
@@ -927,26 +941,9 @@ def file_upload(request):
                 ),
             ) from None
 
-        # The project doesn't exist in our database, so first we'll check for
-        # projects with a similar name
-        squattees = (
-            request.db.query(Project)
-            .filter(
-                func.levenshtein(
-                    Project.normalized_name, func.normalize_pep426_name(form.name.data)
-                )
-                <= 2
-            )
-            .all()
-        )
-
         # Next we'll create the project
         project = Project(name=form.name.data)
         request.db.add(project)
-
-        # Now that the project exists, add any squats which it is the squatter for
-        for squattee in squattees:
-            request.db.add(Squat(squatter=project, squattee=squattee))
 
         # Then we'll add a role setting the current user as the "Owner" of the
         # project.
@@ -1242,7 +1239,7 @@ def file_upload(request):
                         HTTPBadRequest,
                         "Project size too large. Limit for "
                         + "project {name!r} total size is {limit} GB. ".format(
-                            name=project.name, limit=project_size_limit // ONE_GB,
+                            name=project.name, limit=project_size_limit // ONE_GB
                         )
                         + "See "
                         + request.help_url(_anchor="project-size-limit"),

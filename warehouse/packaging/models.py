@@ -45,10 +45,13 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import validates
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy.sql import expression
+from trove_classifiers import sorted_classifiers
 
 from warehouse import db
 from warehouse.accounts.models import User
 from warehouse.classifiers.models import Classifier
+from warehouse.integrations.vulnerabilities.models import VulnerabilityRecord
 from warehouse.sitemap.models import SitemapMixin
 from warehouse.utils import dotted_navigator
 from warehouse.utils.attrs import make_repr
@@ -59,12 +62,48 @@ class Role(db.Model):
     __tablename__ = "roles"
     __table_args__ = (
         Index("roles_user_id_idx", "user_id"),
+        Index("roles_project_id_idx", "project_id"),
         UniqueConstraint("user_id", "project_id", name="_roles_user_project_uc"),
     )
 
     __repr__ = make_repr("role_name")
 
     role_name = Column(Text, nullable=False)
+    user_id = Column(
+        ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+    )
+    project_id = Column(
+        ForeignKey("projects.id", onupdate="CASCADE", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    user = orm.relationship(User, lazy=False)
+    project = orm.relationship("Project", lazy=False)
+
+
+class RoleInvitationStatus(enum.Enum):
+
+    Pending = "pending"
+    Expired = "expired"
+
+
+class RoleInvitation(db.Model):
+
+    __tablename__ = "role_invitations"
+    __table_args__ = (
+        Index("role_invitations_user_id_idx", "user_id"),
+        UniqueConstraint(
+            "user_id", "project_id", name="_role_invitations_user_project_uc"
+        ),
+    )
+
+    __repr__ = make_repr("invite_status", "user", "project")
+
+    invite_status = Column(
+        Enum(RoleInvitationStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    token = Column(Text, nullable=False)
     user_id = Column(
         ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
     )
@@ -236,7 +275,9 @@ class ProjectEvent(db.Model):
 
     project_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", deferrable=True, initially="DEFERRED"),
+        ForeignKey(
+            "projects.id", deferrable=True, initially="DEFERRED", ondelete="CASCADE"
+        ),
         nullable=False,
     )
     tag = Column(String, nullable=False)
@@ -360,7 +401,10 @@ class Release(db.Model):
         Classifier,
         backref="project_releases",
         secondary=lambda: release_classifiers,
-        order_by=Classifier.classifier,
+        order_by=expression.case(
+            {c: i for i, c in enumerate(sorted_classifiers)},
+            value=Classifier.classifier,
+        ),
         passive_deletes=True,
     )
     classifiers = association_proxy("_classifiers", "classifier")
@@ -378,6 +422,13 @@ class Release(db.Model):
         "Dependency",
         backref="release",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    vulnerabilities = orm.relationship(
+        VulnerabilityRecord,
+        back_populates="releases",
+        secondary="release_vulnerabilities",
         passive_deletes=True,
     )
 

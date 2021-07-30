@@ -577,23 +577,23 @@
 
       {% elif event.tag  == "account:email:add" %}
       <strong>{% trans %}Email added to account{% endtrans %}</strong><br>
-      <small>{{ event.additional.email }}<small>
+      <small>{{ event.additional.email }}</small>
       {% elif event.tag  == "account:email:remove" %}
       <strong>{% trans %}Email removed from account{% endtrans %}</strong><br>
-      <small>{{ event.additional.email }}<small>
+      <small>{{ event.additional.email }}</small>
       {% elif event.tag  == "account:email:verified" %}
       <strong>{% trans %}Email verified{% endtrans %}</strong><br>
-      <small>{{ event.additional.email }}<small>
+      <small>{{ event.additional.email }}</small>
       {% elif event.tag  == "account:email:reverify" %}
       <strong>{% trans %}Email reverified{% endtrans %}</strong><br>
-      <small>{{ event.additional.email }}<small>
+      <small>{{ event.additional.email }}</small>
       {% elif event.tag  == "account:email:primary:change" %}
         {% if event.additional.old_primary %}
         <strong>{% trans %}Primary email changed{% endtrans %}</strong><br>
         <small>
           {% trans %}Old primary email:{% endtrans %} {{ event.additional.old_primary }}<br>
           {% trans %}New primary email:{% endtrans %} {{ event.additional.new_primary }}
-        <small>
+        </small>
         {% else %}
         <strong>{% trans %}Primary email set{% endtrans %}</strong><br>
         <small>
@@ -610,6 +610,8 @@
 
       {% elif event.tag  == "account:password:reset:request" %}
       <strong>{% trans %}Password reset requested{% endtrans %}</strong>
+      {% elif event.tag  == "account:password:reset:attempt" %}
+      <strong>{% trans %}Password reset attempted{% endtrans %}</strong>
       {% elif event.tag  == "account:password:reset" %}
       <strong>{% trans %}Password successfully reset{% endtrans %}</strong>
       {% elif event.tag  == "account:password:change" %}
@@ -664,6 +666,20 @@
       {% elif event.tag  == "account:api_token:removed" %}
       <strong>{% trans %}API token removed{% endtrans %}</strong><br>
       <small>{% trans %}Unique identifier:{% endtrans %} {{ event.additional.macaroon_id }}</small>
+
+      {% elif event.tag  == "account:api_token:removed_leak" %}
+      <strong>{% trans %}API token automatically removed for security reasons{% endtrans %}</strong><br>
+      <small>
+        {% trans %}Token name:{% endtrans %} {{ event.additional.description }}<br>
+        {% trans %}Unique identifier:{% endtrans %} {{ event.additional.macaroon_id }}<br>
+        {% if event.additional.permissions == "user" %}
+        {% trans %}Token scope: entire account{% endtrans %}
+        {% else %}
+        {% trans project_name=event.additional.permissions.projects[0] %}Token scope: Project {{ project_name }}{% endtrans %}
+        {% endif %}<br>
+        {% trans public_url=event.additional.public_url %}Reason: Token found at <a href="{{ public_url }}">public url</a>{% endtrans %}
+      </small>
+
       {% else %}
       <strong>{{ event.tag }}</strong>
       {% endif %}

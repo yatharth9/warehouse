@@ -14,10 +14,9 @@ import functools
 
 from email.headerregistry import Address
 
-import attr
-
 from celery.schedules import crontab
 from first import first
+from sqlalchemy.orm.exc import NoResultFound
 
 from warehouse import tasks
 from warehouse.accounts.interfaces import ITokenService, IUserService
@@ -31,6 +30,25 @@ def _compute_recipient(user, email):
     # We want to try and use the user's name, then their username, and finally
     # nothing to display a "Friendly" name for the recipient.
     return str(Address(first([user.name, user.username], default=""), addr_spec=email))
+
+
+def _redact_ip(request, email):
+    # We should only store/display IP address of an 'email sent' event if the user
+    # who triggered the email event is the one who receives the email. Else display
+    # 'Redacted' to prevent user privacy concerns. If we don't know the user who
+    # triggered the action, default to showing the IP of the source.
+
+    try:
+        user_email = request.db.query(Email).filter(Email.email == email).one()
+    except NoResultFound:
+        # The email might have been deleted if this is an account deletion event
+        return False
+
+    if request.unauthenticated_userid:
+        return user_email.user_id != request.unauthenticated_userid
+    if request.user:
+        return user_email.user_id != request.user.id
+    return False
 
 
 @tasks.task(bind=True, ignore_result=True, acks_late=True)
@@ -60,16 +78,13 @@ def _send_email_to_user(request, user, msg, *, email=None, allow_unverified=Fals
     if email is None or not (email.verified or allow_unverified):
         return
 
-    # We should only store/display IP address of an 'email sent' event if the user
-    # who triggered the email event is the one who receives the email. Else display
-    # 'Redacted' to prevent user privacy concerns. If we don't know the user who
-    # triggered the action, default to showing the IP of the source.
-    user_email = request.db.query(Email).filter(Email.email == email.email).one()
-    redact_ip = user_email.user_id != request.user.id if request.user else False
-
     request.task(send_email).delay(
         _compute_recipient(user, email.email),
-        attr.asdict(msg),
+        {
+            "subject": msg.subject,
+            "body_text": msg.body_text,
+            "body_html": msg.body_html,
+        },
         {
             "tag": "account:email:sent",
             "user_id": user.id,
@@ -78,7 +93,7 @@ def _send_email_to_user(request, user, msg, *, email=None, allow_unverified=Fals
                 "from_": request.registry.settings.get("mail.sender"),
                 "to": email.email,
                 "subject": msg.subject,
-                "redact_ip": redact_ip,
+                "redact_ip": _redact_ip(request, email.email),
             },
         },
     )
@@ -192,6 +207,11 @@ def send_password_compromised_email_hibp(request, user):
     return {}
 
 
+@_email("token-compromised-leak", allow_unverified=True)
+def send_token_compromised_email_leak(request, user, *, public_url, origin):
+    return {"username": user.username, "public_url": public_url, "origin": origin}
+
+
 @_email("account-deleted")
 def send_account_deletion_email(request, user):
     return {"username": user.username}
@@ -219,9 +239,33 @@ def send_collaborator_added_email(
     }
 
 
+@_email("verify-project-role", allow_unverified=True)
+def send_project_role_verification_email(
+    request,
+    user,
+    desired_role,
+    initiator_username,
+    project_name,
+    email_token,
+    token_age,
+):
+    return {
+        "desired_role": desired_role,
+        "email_address": user.email,
+        "initiator_username": initiator_username,
+        "n_hours": token_age // 60 // 60,
+        "project_name": project_name,
+        "token": email_token,
+    }
+
+
 @_email("added-as-collaborator")
 def send_added_as_collaborator_email(request, user, *, submitter, project_name, role):
-    return {"project": project_name, "submitter": submitter.username, "role": role}
+    return {
+        "project_name": project_name,
+        "initiator_username": submitter.username,
+        "role": role,
+    }
 
 
 @_email("collaborator-removed")
