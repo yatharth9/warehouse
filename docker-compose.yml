@@ -3,6 +3,7 @@ version: '3'
 volumes:
   simple:
   packages:
+  sponsorlogos:
   vault:
 
 services:
@@ -87,6 +88,7 @@ services:
       - .coveragerc:/opt/warehouse/src/.coveragerc:z
       - packages:/var/opt/warehouse/packages
       - simple:/var/opt/warehouse/simple
+      - sponsorlogos:/var/opt/warehouse/sponsorlogos
       - ./bin:/opt/warehouse/src/bin:z
     ports:
       - "80:8000"
@@ -99,6 +101,7 @@ services:
     volumes:
       - packages:/var/opt/warehouse/packages
       - simple:/var/opt/warehouse/simple
+      - sponsorlogos:/var/opt/warehouse/sponsorlogos
     ports:
       - "9001:9001"
 
@@ -146,3 +149,10 @@ services:
       - "8125:8125/udp"
     volumes:
       - ./dev/notdatadog.py:/opt/warehouse/dev/notdatadog.py
+
+  notgithub:
+    image: ewjoachim/notgithub-token-scanning
+    environment:
+      NOTGITHUB_DEFAULT_URL: "http://web:8000/_/github/disclose-token"
+    ports:
+      - "8964:8000"
