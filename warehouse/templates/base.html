@@ -39,7 +39,7 @@
   <nav class="horizontal-menu horizontal-menu--light horizontal-menu--tall hide-on-tablet" aria-label="{% trans %}Main navigation{% endtrans %}">
     <ul>
       <li class="horizontal-menu__item"><a href="{{ request.route_path('help') }}" class="horizontal-menu__link">{% trans %}Help{% endtrans %}</a></li>
-      <li class="horizontal-menu__item"><a href="{{ request.route_path('sponsor') }}" class="horizontal-menu__link">{% trans %}Sponsor{% endtrans %}</a></li>
+      <li class="horizontal-menu__item"><a href="{{ request.route_path('sponsors') }}" class="horizontal-menu__link">{% trans %}Sponsors{% endtrans %}</a></li>
       <li class="horizontal-menu__item"><a href="{{ request.route_path('accounts.login') }}" class="horizontal-menu__link">{% trans %}Log in{% endtrans %}</a></li>
       <li class="horizontal-menu__item"><a href="{{ request.route_path('accounts.register') }}" class="horizontal-menu__link">{% trans %}Register{% endtrans %}</a></li>
     </ul>
@@ -53,7 +53,7 @@
     </button>
     <ul class="dropdown__content" aria-hidden="true" aria-label="{% trans %}Main menu{% endtrans %}">
       <li><a class="dropdown__link" href="{{ request.route_path('help') }}">{% trans %}Help{% endtrans %}</a></li>
-      <li><a class="dropdown__link" href="{{ request.route_path('sponsor') }}">{% trans %}Sponsor{% endtrans %}</a></li>
+      <li><a class="dropdown__link" href="{{ request.route_path('sponsors') }}">{% trans %}Sponsors{% endtrans %}</a></li>
       <li><a class="dropdown__link" href="{{ request.route_path('accounts.login') }}">{% trans %}Log in{% endtrans %}</a></li>
       <li><a class="dropdown__link" href="{{ request.route_path('accounts.register') }}">{% trans %}Register{% endtrans %}</a></li>
     </ul>
@@ -181,6 +181,11 @@
         <span class="notification-bar__message">{% trans %}Some features may not work without JavaScript. Please try enabling it if you encounter problems.{% endtrans %}</span>
       </div>
       </noscript>
+
+      {% block banner_messages %}
+        {% csi request.route_path("includes.db-banners") %}
+        {% endcsi %}
+      {% endblock %}
     </div>
 
     {% block flash_messages %}
@@ -294,7 +299,7 @@
           <h2>{% trans %}Using PyPI{% endtrans %}</h2>
           <nav aria-label="{% trans %}Using PyPI navigation{% endtrans %}">
             <ul>
-              <li><a href="https://www.pypa.io/en/latest/code-of-conduct/" title="{% trans %}External link{% endtrans %}" target="_blank" rel="noopener">{% trans %}Code of conduct{% endtrans %}</a></li>
+              <li><a href="https://github.com/pypa/.github/blob/main/CODE_OF_CONDUCT.md" title="{% trans %}External link{% endtrans %}" target="_blank" rel="noopener">{% trans %}Code of conduct{% endtrans %}</a></li>
               <li><a href="{{ request.route_path('security') }}">{% trans %}Report security issue{% endtrans %}</a></li>
               <li><a href="https://www.python.org/privacy/" title="{% trans %}External link{% endtrans %}" target="_blank" rel="noopener">{% trans %}Privacy policy{% endtrans %}</a></li>
               <li><a href="{{ request.route_path('policy.terms-of-use') }}">{% trans %}Terms of use{% endtrans %}</a></li>
@@ -349,7 +354,7 @@
     </div>
 
 
-    {% include "warehouse:templates/includes/sponsors.html" %}
+    {% include "warehouse:templates/includes/sponsors-footer.html" %}
 
     {% endblock body %}
   </body>

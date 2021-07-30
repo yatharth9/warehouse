@@ -12,11 +12,13 @@
 
 import json
 
+from email.errors import HeaderParseError
 from email.headerregistry import Address
 
 import disposable_email_domains
 import jinja2
 import wtforms
+import wtforms.fields
 import wtforms.fields.html5
 
 import warehouse.utils.webauthn as webauthn
@@ -185,7 +187,7 @@ class NewEmailMixin:
         # Additional checks for the validity of the address
         try:
             Address(addr_spec=field.data)
-        except ValueError:
+        except (ValueError, HeaderParseError):
             raise wtforms.validators.ValidationError(
                 _("The email address isn't valid. Try again.")
             )
@@ -222,7 +224,7 @@ class NewEmailMixin:
 
 class HoneypotMixin:
 
-    """ A mixin to catch spammers. This field should always be blank """
+    """A mixin to catch spammers. This field should always be blank"""
 
     confirm_form = wtforms.StringField()
 
@@ -332,6 +334,24 @@ class WebAuthnAuthenticationForm(WebAuthnCredentialMixin, _TwoFactorAuthenticati
             raise wtforms.validators.ValidationError(str(e))
 
         self.validated_credential = validated_credential
+
+
+class ReAuthenticateForm(PasswordMixin, forms.Form):
+    __params__ = ["username", "password", "next_route", "next_route_matchdict"]
+
+    username = wtforms.fields.HiddenField(
+        validators=[wtforms.validators.DataRequired()]
+    )
+    next_route = wtforms.fields.HiddenField(
+        validators=[wtforms.validators.DataRequired()]
+    )
+    next_route_matchdict = wtforms.fields.HiddenField(
+        validators=[wtforms.validators.DataRequired()]
+    )
+
+    def __init__(self, *args, user_service, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user_service = user_service
 
 
 class RecoveryCodeAuthenticationForm(

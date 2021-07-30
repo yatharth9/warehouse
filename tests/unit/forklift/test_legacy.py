@@ -34,7 +34,6 @@ from wtforms.form import Form
 from wtforms.validators import ValidationError
 
 from warehouse.admin.flags import AdminFlag, AdminFlagValue
-from warehouse.admin.squats import Squat
 from warehouse.classifiers.models import Classifier
 from warehouse.forklift import legacy
 from warehouse.metrics import IMetricsService
@@ -83,11 +82,20 @@ _TAR_BZ2_PKG_STORAGE_HASH = hashlib.blake2b(
 ).hexdigest()
 
 
-def test_exc_with_message():
-    exc = legacy._exc_with_message(HTTPBadRequest, "My Test Message.")
-    assert isinstance(exc, HTTPBadRequest)
-    assert exc.status_code == 400
-    assert exc.status == "400 My Test Message."
+class TestExcWithMessage:
+    def test_exc_with_message(self):
+        exc = legacy._exc_with_message(HTTPBadRequest, "My Test Message.")
+        assert isinstance(exc, HTTPBadRequest)
+        assert exc.status_code == 400
+        assert exc.status == "400 My Test Message."
+
+    def test_exc_with_exotic_message(self):
+        exc = legacy._exc_with_message(
+            HTTPBadRequest, "look at these wild chars: аÃ¤â€—"
+        )
+        assert isinstance(exc, HTTPBadRequest)
+        assert exc.status_code == 400
+        assert exc.status == "400 look at these wild chars: ?Ã¤â??"
 
 
 class TestValidation:
@@ -1060,7 +1068,6 @@ class TestFileUpload:
         user = UserFactory.create()
         EmailFactory.create(user=user)
         db_request.user = user
-        db_request.remote_addr = "10.10.10.30"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         db_request.POST = MultiDict(
@@ -1310,7 +1317,6 @@ class TestFileUpload:
         filename = "{}-{}.tar.gz".format(project.name, release.version)
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.40"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         content = FieldStorage()
@@ -1442,7 +1448,7 @@ class TestFileUpload:
                 release.version,
                 "add source file {}".format(filename),
                 user,
-                "10.10.10.40",
+                db_request.remote_addr,
             )
         ]
 
@@ -1856,6 +1862,50 @@ class TestFileUpload:
         assert resp.status_code == 400
         assert resp.status == "400 Invalid distribution file."
 
+    def test_upload_fails_end_of_file_error(self, pyramid_config, db_request, metrics):
+        pyramid_config.testing_securitypolicy(userid=1)
+
+        user = UserFactory.create()
+        EmailFactory.create(user=user)
+        project = ProjectFactory.create(name="Package-Name")
+        RoleFactory.create(user=user, project=project)
+
+        # Malformed tar.gz, triggers EOF error
+        file_contents = b"\x8b\x08\x00\x00\x00\x00\x00\x00\xff"
+
+        db_request.user = user
+        db_request.user_agent = "warehouse-tests/6.6.6"
+        db_request.POST = MultiDict(
+            {
+                "metadata_version": "1.1",
+                "name": "malformed",
+                "version": "1.1",
+                "summary": "This is my summary!",
+                "filetype": "sdist",
+                "md5_digest": hashlib.md5(file_contents).hexdigest(),
+                "content": pretend.stub(
+                    filename="malformed-1.1.tar.gz",
+                    file=io.BytesIO(file_contents),
+                    type="application/tar",
+                ),
+            }
+        )
+
+        storage_service = pretend.stub(store=lambda path, filepath, meta: None)
+        db_request.find_service = lambda svc, name=None, context=None: {
+            IFileStorage: storage_service,
+            IMetricsService: metrics,
+        }.get(svc)
+        db_request.user_agent = "warehouse-tests/6.6.6"
+
+        with pytest.raises(HTTPBadRequest) as excinfo:
+            legacy.file_upload(db_request)
+
+        resp = excinfo.value
+
+        assert resp.status_code == 400
+        assert resp.status == "400 Invalid distribution file."
+
     def test_upload_fails_with_too_large_file(self, pyramid_config, db_request):
         pyramid_config.testing_securitypolicy(userid=1)
 
@@ -2034,7 +2084,6 @@ class TestFileUpload:
             IFileStorage: storage_service,
             IMetricsService: metrics,
         }.get(svc)
-        db_request.remote_addr = "10.10.10.10"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         resp = legacy.file_upload(db_request)
@@ -2080,21 +2129,21 @@ class TestFileUpload:
             (j.name, j.version, j.action, j.submitted_by, j.submitted_from)
             for j in journals
         ] == [
-            ("example", None, "create", user, "10.10.10.10"),
+            ("example", None, "create", user, db_request.remote_addr),
             (
                 "example",
                 None,
                 "add Owner {}".format(user.username),
                 user,
-                "10.10.10.10",
+                db_request.remote_addr,
             ),
-            ("example", "1.0", "new release", user, "10.10.10.10"),
+            ("example", "1.0", "new release", user, db_request.remote_addr),
             (
                 "example",
                 "1.0",
                 "add source file example-1.0.tar.gz",
                 user,
-                "10.10.10.10",
+                db_request.remote_addr,
             ),
         ]
 
@@ -2517,8 +2566,18 @@ class TestFileUpload:
             "manylinux2014_ppc64",
             "manylinux2014_ppc64le",
             "manylinux2014_s390x",
+            "manylinux_2_5_i686",
+            "manylinux_2_12_x86_64",
+            "manylinux_2_17_aarch64",
+            "manylinux_2_17_armv7l",
+            "manylinux_2_17_ppc64",
+            "manylinux_2_17_ppc64le",
+            "manylinux_3_0_s390x",
             "macosx_10_6_intel",
             "macosx_10_13_x86_64",
+            "macosx_11_0_x86_64",
+            "macosx_10_15_arm64",
+            "macosx_11_10_universal2",
             # A real tag used by e.g. some numpy wheels
             (
                 "macosx_10_6_intel.macosx_10_9_intel.macosx_10_9_x86_64."
@@ -2542,7 +2601,6 @@ class TestFileUpload:
         filename = "{}-{}-cp34-none-{}.whl".format(project.name, release.version, plat)
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.30"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -2627,7 +2685,7 @@ class TestFileUpload:
                 release.version,
                 "add cp34 file {}".format(filename),
                 user,
-                "10.10.10.30",
+                db_request.remote_addr,
             )
         ]
 
@@ -2657,7 +2715,6 @@ class TestFileUpload:
         filename = "{}-{}-cp34-none-any.whl".format(project.name, release.version)
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.30"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -2741,11 +2798,20 @@ class TestFileUpload:
                 release.version,
                 "add cp34 file {}".format(filename),
                 user,
-                "10.10.10.30",
+                db_request.remote_addr,
             )
         ]
 
-    @pytest.mark.parametrize("plat", ["linux_x86_64", "linux_x86_64.win32"])
+    @pytest.mark.parametrize(
+        "plat",
+        [
+            "linux_x86_64",
+            "linux_x86_64.win32",
+            "macosx_9_2_x86_64",
+            "macosx_12_2_arm64",
+            "macosx_10_15_amd64",
+        ],
+    )
     def test_upload_fails_with_unsupported_wheel_plat(
         self, monkeypatch, pyramid_config, db_request, plat
     ):
@@ -2802,7 +2868,6 @@ class TestFileUpload:
         filename = "{}-{}.tar.gz".format(new_project_name, "1.1")
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.20"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -2825,7 +2890,6 @@ class TestFileUpload:
             IFileStorage: storage_service,
             IMetricsService: metrics,
         }.get(svc)
-        db_request.remote_addr = "10.10.10.10"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         resp = legacy.file_upload(db_request)
@@ -2860,7 +2924,6 @@ class TestFileUpload:
         filename = "{}-{}.tar.gz".format(project.name, "1.0")
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.20"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -2936,13 +2999,19 @@ class TestFileUpload:
             (j.name, j.version, j.action, j.submitted_by, j.submitted_from)
             for j in journals
         ] == [
-            (release.project.name, release.version, "new release", user, "10.10.10.20"),
+            (
+                release.project.name,
+                release.version,
+                "new release",
+                user,
+                db_request.remote_addr,
+            ),
             (
                 release.project.name,
                 release.version,
                 "add source file {}".format(filename),
                 user,
-                "10.10.10.20",
+                db_request.remote_addr,
             ),
         ]
 
@@ -2963,7 +3032,6 @@ class TestFileUpload:
         filename = "{}-{}.tar.gz".format(project.name, "1.0")
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.20"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -3023,9 +3091,7 @@ class TestFileUpload:
             db_request.db.add(Classifier(classifier=classifier))
         db_request.db.commit()
 
-    @pytest.mark.parametrize(
-        "parent_classifier", ["private", "Private", "PrIvAtE"],
-    )
+    @pytest.mark.parametrize("parent_classifier", ["private", "Private", "PrIvAtE"])
     def test_private_classifiers_cannot_be_created(self, db_request, parent_classifier):
         with pytest.raises(IntegrityError):
             db_request.db.add(Classifier(classifier=f"{parent_classifier} :: Foo"))
@@ -3046,7 +3112,6 @@ class TestFileUpload:
         RoleFactory.create(user=user, project=project)
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.20"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -3095,7 +3160,6 @@ class TestFileUpload:
         RoleFactory.create(user=user, project=project)
 
         db_request.user = user
-        db_request.remote_addr = "10.10.10.20"
         db_request.user_agent = "warehouse-tests/6.6.6"
         db_request.POST = MultiDict(
             {
@@ -3153,7 +3217,6 @@ class TestFileUpload:
             IFileStorage: storage_service,
             IMetricsService: metrics,
         }.get(svc)
-        db_request.remote_addr = "10.10.10.10"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         resp = legacy.file_upload(db_request)
@@ -3199,70 +3262,23 @@ class TestFileUpload:
             (j.name, j.version, j.action, j.submitted_by, j.submitted_from)
             for j in journals
         ] == [
-            ("example", None, "create", user, "10.10.10.10"),
+            ("example", None, "create", user, db_request.remote_addr),
             (
                 "example",
                 None,
                 "add Owner {}".format(user.username),
                 user,
-                "10.10.10.10",
+                db_request.remote_addr,
             ),
-            ("example", "1.0", "new release", user, "10.10.10.10"),
+            ("example", "1.0", "new release", user, db_request.remote_addr),
             (
                 "example",
                 "1.0",
                 "add source file example-1.0.tar.gz",
                 user,
-                "10.10.10.10",
+                db_request.remote_addr,
             ),
         ]
-
-    def test_upload_succeeds_creates_squats(self, pyramid_config, db_request, metrics):
-        pyramid_config.testing_securitypolicy(userid=1)
-
-        squattee = ProjectFactory(name="example")
-        user = UserFactory.create()
-        EmailFactory.create(user=user)
-
-        filename = "{}-{}.tar.gz".format("exmaple", "1.0")
-
-        db_request.user = user
-        db_request.POST = MultiDict(
-            {
-                "metadata_version": "1.2",
-                "name": "exmaple",
-                "version": "1.0",
-                "filetype": "sdist",
-                "md5_digest": _TAR_GZ_PKG_MD5,
-                "content": pretend.stub(
-                    filename=filename,
-                    file=io.BytesIO(_TAR_GZ_PKG_TESTDATA),
-                    type="application/tar",
-                ),
-            }
-        )
-
-        storage_service = pretend.stub(store=lambda path, filepath, meta: None)
-        db_request.find_service = lambda svc, name=None, context=None: {
-            IFileStorage: storage_service,
-            IMetricsService: metrics,
-        }.get(svc)
-        db_request.remote_addr = "10.10.10.10"
-        db_request.user_agent = "warehouse-tests/6.6.6"
-
-        resp = legacy.file_upload(db_request)
-
-        assert resp.status_code == 200
-
-        # Ensure that a Project object has been created.
-        squatter = db_request.db.query(Project).filter(Project.name == "exmaple").one()
-
-        # Ensure that a Squat object has been created.
-        squat = db_request.db.query(Squat).one()
-
-        assert squat.squattee == squattee
-        assert squat.squatter == squatter
-        assert squat.reviewed is False
 
     @pytest.mark.parametrize(
         ("emails_verified", "expected_success"),
@@ -3308,7 +3324,6 @@ class TestFileUpload:
             IFileStorage: storage_service,
             IMetricsService: metrics,
         }.get(svc)
-        db_request.remote_addr = "10.10.10.10"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         if expected_success:
@@ -3364,7 +3379,6 @@ class TestFileUpload:
             IFileStorage: storage_service,
             IMetricsService: metrics,
         }.get(svc)
-        db_request.remote_addr = "10.10.10.10"
         db_request.user_agent = "warehouse-tests/6.6.6"
 
         resp = legacy.file_upload(db_request)
@@ -3430,3 +3444,17 @@ def test_doc_upload(pyramid_request):
         "410 Uploading documentation is no longer supported, we recommend "
         "using https://readthedocs.org/."
     )
+
+
+def test_missing_trailing_slash_redirect(pyramid_request):
+
+    pyramid_request.route_path = pretend.call_recorder(lambda *a, **kw: "/legacy/")
+
+    resp = legacy.missing_trailing_slash_redirect(pyramid_request)
+
+    assert resp.status_code == 308
+    assert resp.status == (
+        "308 An upload was attempted to /legacy but the expected upload URL is "
+        "/legacy/ (with a trailing slash)"
+    )
+    assert resp.headers["Location"] == "/legacy/"

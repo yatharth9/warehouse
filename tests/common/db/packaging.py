@@ -28,6 +28,7 @@ from warehouse.packaging.models import (
     Project,
     Release,
     Role,
+    RoleInvitation,
 )
 from warehouse.utils import readme
 
@@ -110,6 +111,16 @@ class RoleFactory(WarehouseFactory):
         model = Role
 
     role_name = "Owner"
+    user = factory.SubFactory(UserFactory)
+    project = factory.SubFactory(ProjectFactory)
+
+
+class RoleInvitationFactory(WarehouseFactory):
+    class Meta:
+        model = RoleInvitation
+
+    invite_status = "pending"
+    token = "test_token"
     user = factory.SubFactory(UserFactory)
     project = factory.SubFactory(ProjectFactory)
 

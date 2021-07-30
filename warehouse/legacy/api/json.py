@@ -65,8 +65,12 @@ def json_project(project, request):
     try:
         release = (
             request.db.query(Release)
-            .filter(Release.project == project, Release.yanked.is_(False))
-            .order_by(Release.is_prerelease.nullslast(), Release._pypi_ordering.desc())
+            .filter(Release.project == project)
+            .order_by(
+                Release.yanked.asc(),
+                Release.is_prerelease.nullslast(),
+                Release._pypi_ordering.desc(),
+            )
             .limit(1)
             .one()
         )
@@ -190,7 +194,7 @@ def json_release(release, request):
             "home_page": release.home_page,
             "download_url": release.download_url,
             "yanked": release.yanked,
-            "yanked_reason": r.yanked_reason or None,
+            "yanked_reason": release.yanked_reason or None,
         },
         "urls": releases[release.version],
         "releases": releases,
