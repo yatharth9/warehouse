@@ -411,14 +411,16 @@ def test_routes(warehouse):
         pretend.call(
             "sponsors",
             "/sponsors/",
-            "warehouse:templates/pages/sponsors.html",
+            "pages/sponsors.html",
             view_kw={"has_translations": True},
         ),
     ]
 
     assert config.add_redirect.calls == [
         pretend.call("/sponsor/", "/sponsors/", domain=warehouse),
+        pretend.call("/u/{username}/", "/user/{username}/", domain=warehouse),
         pretend.call("/p/{name}/", "/project/{name}/", domain=warehouse),
+        pretend.call("/s/{name}/", "/simple/{name}/", domain=warehouse),
         pretend.call("/pypi/{name}/", "/project/{name}/", domain=warehouse),
         pretend.call(
             "/pypi/{name}/{version}/", "/project/{name}/{version}/", domain=warehouse
